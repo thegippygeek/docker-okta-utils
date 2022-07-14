@@ -19,16 +19,20 @@ requests = requests.Session()
 
 class OktaAPIAuth(object):
 
-    def __init__(self, okta_server, username):
+    def __init__(self, okta_server, username, password):
         self.okta_url = None
         self.username = username
+        self.password_passed = password
         self.userid = None
         url_new = ('https', okta_server, '', '', '','')
         self.okta_url = urllib.parse.urlunparse(url_new)
 
     @property
     def password(self):
-        return getpass.getpass('Password: ')
+        if not self.password_passed:
+            return getpass.getpass('Password: ')
+        return self.password_passed
+        
 
     @property
     def totp_code(self):
@@ -75,6 +79,7 @@ class OktaAPIAuth(object):
 
             if 'errorCauses' in pw_auth_resp:
                 print('\033[91mUser authentication failed: %s\033[0m' % (pw_auth_resp['errorSummary'],))
+                self.password_passed = None
                 return False
             if pw_auth_resp['status'] in {'MFA_ENROLL', 'MFA_ENROLL_ACTIVATE'}:
                 print('\033[91mYou need to add an MFA token via okta.com first.\033[0m')
@@ -155,11 +160,11 @@ class OktaAPIAuth(object):
 
 class OktaSamlAuth(OktaAPIAuth):
 
-    def __init__(self, okta_url, application_type, application_id, username, preferred_mfa, **kwargs):
+    def __init__(self, okta_url, application_type, application_id, username, password, preferred_mfa, **kwargs):
         self.application_type = application_type
         self.application_id = application_id
         self.preferred_mfa = preferred_mfa
-        OktaAPIAuth.__init__(self, okta_url, username)
+        OktaAPIAuth.__init__(self, okta_url, username, password)
 
     def token_details(self):
         path = "/api/v1/users/" + self.userid + "/factors"
@@ -365,6 +370,9 @@ if __name__ == '__main__':
         parser.add_argument(
             '-u', '--user', help='User to log in as; will prompt if not supplied',)
         parser.add_argument(
+            '-pw', '--password', help='Password to log in as; will prompt if not supplied'
+        )
+        parser.add_argument(
             '-a', '--app', help='App name to log into; will prompt if not supplied',)
         parser.add_argument('-d', '--duration', type=int, default=3600,
                             help='Token expiry time in seconds; default 3600 (1 hour)',)
@@ -376,6 +384,7 @@ if __name__ == '__main__':
         parser.add_argument(
             '-p', '--profile', help='Profile to write credentials to in ~/.aws/credentials'
         )
+        
         args = parser.parse_args(sys.argv[1:])
 
         if args.reauth:
@@ -402,8 +411,8 @@ if __name__ == '__main__':
         username = args.user
         while not username:
             username = input('Username: ')
-
-        auth = OktaSamlAuth(username=username,
+        
+        auth = OktaSamlAuth(username=username, password=args.password, 
                             preferred_mfa=args.mfa, **app_details)
         try:
             saml_assertion = auth.auth()
